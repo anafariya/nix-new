@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --nix-prime: #bc1110;
+  --nix-prime-hover: #bc1110e6;
+  --nix-prime-trans: #be0e0b11;
+  --nix-white: #fff;
+  --nix-txt: #444;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 47.4% 11.2%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 210 40% 98%;
+    --ring: 215 20.2% 65.1%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+    --popover: 224 71% 4%;
+    --popover-foreground: 215 20.2% 65.1%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --card: 224 71% 4%;
+    --card-foreground: 213 31% 91%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 1.2%;
+    --secondary: 222.2 47.4% 11.2%;
+    --secondary-foreground: 210 40% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --ring: 216 34% 17%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: 'Poppins', sans-serif;
+    /* font-family: 'Poppins', 'Playfair'; */
+  }
+}
+
+.rich-content ul {
+  list-style-type: disc;
+  margin-left: 1.5em;
+  margin-bottom: 0.5em;
+  padding-left: 1.5em;
+}
+.rich-content ol {
+  list-style-type: decimal;
+  margin-left: 1.5em;
+  margin-bottom: 0.5em;
+  padding-left: 1.5em;
+}
+.rich-content li {
+  margin-bottom: 0.2em;
+  line-height: 1.4;
+}
+.rich-content p {
+  margin-bottom: 0.5em;
+  line-height: 1.5;
+}
+.rich-content h1,
+.rich-content h2,
+.rich-content h3,
+.rich-content h4,
+.rich-content h5,
+.rich-content h6 {
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+
+/* Ensure links inside CMS/HTML-rich content render with a visible, familiar link style */
+/* .rich-content a {
+  color: #0000ee; 
+  text-decoration: underline;
+}
+.rich-content a:visited {
+  color: #551a8b;
+}
+.rich-content a:hover {
+  color: #0000ee;
+  text-decoration: underline;
+}
+.rich-content a:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+} */
+
+/* Force link color on anchors and their children to override inline/author styles coming from CMS HTML
+   Placed in Tailwind's base layer so utility classes (utilities layer) can still override component link styles
+*/
+
+a {
+  color: blue;
+  font-weight: normal;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+a > strong {
+  font-weight: normal;
+}
+
+.no-anchor-color a {
+  color: inherit;
+}
+
+.no-anchor-underline a:hover {
+  text-decoration: inherit;
+}

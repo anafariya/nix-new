@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reviews</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: white;
+        }
+
+        .loading {
+            color: #666;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="trustindex-reviews">
+        <div class="loading">Loading reviews...</div>
+    </div>
+
+    <script>
+        function removeLoading() {
+            const loadingDiv = document.querySelector('.loading');
+            if (loadingDiv) {
+                loadingDiv.remove();
+                console.log('Loading message removed.');
+            }
+        }
+
+        function observeWidget() {
+            const container = document.getElementById('trustindex-reviews');
+            const observer = new MutationObserver(() => {
+                // Remove loading as soon as any new child is added
+                removeLoading();
+            });
+            observer.observe(container, { childList: true, subtree: true });
+        }
+
+        function loadTrustindexScript() {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.trustindex.io/loader.js?c6f809748a5d14866856cf533dc';
+            script.async = true;
+            script.defer = true;
+            script.onload = function () {
+                // Fallback: remove loading after 3 seconds
+                setTimeout(removeLoading, 3000);
+            };
+            document.body.appendChild(script);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                observeWidget();
+                loadTrustindexScript();
+            });
+        } else {
+            observeWidget();
+            loadTrustindexScript();
+        }
+    </script>
+</body>
+
+</html>
