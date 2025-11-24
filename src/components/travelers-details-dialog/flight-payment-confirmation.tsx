@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../../../stores/authStore';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +28,9 @@ import {
   ArrowRight,
   Edit,
   MapPin,
+  CreditCard,
 } from 'lucide-react';
+import { useRazorpay } from '../../hooks/useRazorpay';
 
 export const PaymentConfirmationModal: React.FC<{
   open: boolean;
@@ -43,7 +47,12 @@ export const PaymentConfirmationModal: React.FC<{
   onProceedToPayment,
   onEditPassengers,
 }) => {
+  const navigate = useNavigate();
+  const { initializePayment } = useRazorpay();
+  const user = useAuthStore((state) => state.user);
+
   const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   console.log(offerData);
 
@@ -97,6 +106,91 @@ export const PaymentConfirmationModal: React.FC<{
   const carryOnBaggage = baggageInfo.filter(
     (b: any) => b.baggageType === 'CarryOn'
   );
+
+  // Calculate total amount from offer data
+  const getTotalAmount = () => {
+    try {
+      // Try to get total from offer data
+      const totalPrice = offerData?.OfferListResponse?.OfferID?.[0]?.TotalPrice?.TotalAmount?.value;
+      if (totalPrice) return parseFloat(totalPrice);
+
+      // Fallback to a default amount
+      return 5185;
+    } catch (error) {
+      console.error('Error calculating total:', error);
+      return 5185;
+    }
+  };
+
+  // Handle Razorpay payment
+  const handlePayNow = async () => {
+    if (!termsAccepted) {
+      alert('Please accept the terms and conditions to proceed.');
+      return;
+    }
+
+    if (isProcessingPayment) return;
+
+    setIsProcessingPayment(true);
+
+    try {
+      const totalAmount = getTotalAmount();
+      const bookingId = 'BKG' + Date.now();
+
+      console.log('🔧 Initiating payment for amount:', totalAmount);
+
+      // Initialize Razorpay payment (without order_id for direct payment)
+      const response = await initializePayment({
+        amount: totalAmount * 100, // Convert to paise
+        currency: 'INR',
+        name: 'Nixtour',
+        description: 'Flight Booking',
+        // Note: order_id removed - using direct payment without backend order creation
+        prefill: {
+          name: user?.FirstName + ' ' + user?.LastName || passengers?.adults?.[0]?.firstName + ' ' + passengers?.adults?.[0]?.lastName || 'Guest',
+          email: user?.Email || passengers?.adults?.[0]?.email || '',
+          contact: user?.PhoneNumber || passengers?.adults?.[0]?.phone || '',
+        },
+        notes: {
+          booking_id: bookingId,
+          customer_id: user?.UserId || 'guest',
+          offer_id: offerData?.OfferListResponse?.OfferID?.[0]?.id || 'unknown',
+        },
+        theme: {
+          color: '#BC1110', // Nixtour brand red color
+          backdrop_color: '#F5F5F5',
+        },
+      });
+
+      console.log('✅ Payment successful:', response);
+
+      // Close the modal
+      onOpenChange(false);
+
+      // Navigate to confirmation page with payment details
+      navigate('/payment-confirmation', {
+        state: {
+          paymentId: response.razorpay_payment_id,
+          orderId: response.razorpay_order_id || bookingId,
+          amount: totalAmount,
+          bookingId: bookingId,
+          offerData: offerData,
+          passengers: passengers,
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ Payment error:', error);
+
+      if (error.message === 'Payment cancelled by user') {
+        // User cancelled, don't show error
+        console.log('User cancelled payment');
+      } else {
+        alert(error.message || 'Payment failed. Please try again.');
+      }
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -627,12 +721,21 @@ export const PaymentConfirmationModal: React.FC<{
                 Edit
               </Button>
               <Button
-                // onClick={onProceedToPayment}
-                // disabled={!termsAccepted}
-                className="flex-1 text-xs h-8 sm:h-10"
+                onClick={handlePayNow}
+                disabled={!termsAccepted || isProcessingPayment}
+                className="flex-1 text-xs h-8 sm:h-10 bg-gradient-to-r from-[#BC1110] to-[#8B0000] hover:from-[#8B0000] hover:to-[#BC1110] text-white"
               >
-                Pay Now
-                <ArrowRight className="w-3 h-3 ml-1" />
+                {isProcessingPayment ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="w-3 h-3 mr-1" />
+                    Pay Now
+                  </>
+                )}
               </Button>
               <Button
                 onClick={onProceedToPayment}

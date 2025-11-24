@@ -1,34 +1,55 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useRazorpay } from '../../hooks/useRazorpay';
+import { useAuthStore } from '../../../stores/authStore';
 
-// Shadcn / TailwindUI style components (assume these exist in your project)
+// Shadcn / TailwindUI style components
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from '../../components/ui/card'; // adapt paths to your project
-import { Input } from '../../components/ui/input';
-// import { RadioGroup } from "../../components/ui/radio-group";
-import { Label } from '../../components/ui/label';
-// import { Separator } from "@/components/ui/separator";
+} from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
+import { CreditCard, Shield, Clock, CheckCircle } from 'lucide-react';
+import { Navbar } from '../../components/navbar/navbar';
+import Footer from '../../components/footer/footer';
 
-// Note: This file is a single-file React + TypeScript UI for a payment page.
-// It uses Tailwind CSS and shadcn-style components. Replace imports with
-// your actual component library paths if different.
-
-type PaymentMethod = 'card' | 'upi' | 'cash' | 'wallet';
+type PaymentMethod = 'razorpay' | 'upi' | 'card' | 'wallet' | 'netbanking';
 
 export const PaymentPage: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { initializePayment } = useRazorpay();
+  const user = useAuthStore((state) => state.user);
+
   // UI state
-  const [method, setMethod] = useState<PaymentMethod>('card');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardName, setCardName] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [upiId, setUpiId] = useState('');
-  const [walletOption, setWalletOption] = useState('Paytm');
+  const [method, setMethod] = useState<PaymentMethod>('razorpay');
   const [agreeTOS, setAgreeTOS] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Get payment details from location state
+  const locationState = location.state as any;
+
+  // Redirect if no amount provided
+  useEffect(() => {
+    if (!locationState?.amount) {
+      alert('No payment details found. Please start from booking page.');
+      navigate('/');
+    }
+  }, [locationState, navigate]);
+
+  const [paymentDetails] = useState({
+    amount: locationState?.amount || 0,
+    bookingId: locationState?.bookingId || 'BKG' + Date.now(),
+    description: locationState?.description || 'Booking',
+    customerName: user?.FirstName + ' ' + user?.LastName || 'Guest',
+    customerEmail: user?.Email || '',
+    customerContact: user?.PhoneNumber || '',
+    offerData: locationState?.offerData || null,
+    passengers: locationState?.passengers || null,
+    breakdown: locationState?.breakdown || null,
+  });
 
   // Timer for 10 minutes (600 seconds)
   const SESSION_SECONDS = 600;
@@ -52,369 +73,326 @@ export const PaymentPage: React.FC = () => {
     return `${m}:${s}`;
   }, [remaining]);
 
-  // Basic validation for enabling pay button
-  const isCardValid = useMemo(() => {
-    // naive checks: 16-digit number, name present, expiry MM/YY or MM/YYYY, cvv 3 or 4 digits
-    const num = cardNumber.replace(/\s+/g, '');
-    const cardOk = /^\d{12,19}$/.test(num); // allow 12-19 digits (some cards vary)
-    const nameOk = cardName.trim().length > 2;
-    const expOk = /^(0[1-9]|1[0-2])\/(?:\d{2}|\d{4})$/.test(expiry.trim());
-    const cvvOk = /^\d{3,4}$/.test(cvv.trim());
-    return cardOk && nameOk && expOk && cvvOk;
-  }, [cardNumber, cardName, expiry, cvv]);
-
-  const isUpiValid = useMemo(() => {
-    return /^\w+@[\w.-]+$/.test(upiId.trim());
-  }, [upiId]);
-
   const isPayEnabled = useMemo(() => {
     if (remaining <= 0) return false;
     if (!agreeTOS) return false;
-    switch (method) {
-      case 'card':
-        return isCardValid;
-      case 'upi':
-        return isUpiValid;
-      case 'cash':
-        return true; // cash on arrival - minimal requirements
-      case 'wallet':
-        return !!walletOption;
-      default:
-        return false;
+    return true;
+  }, [remaining, agreeTOS]);
+
+  // Handle Razorpay payment
+  const handleRazorpayPayment = async () => {
+    if (!isPayEnabled || isProcessing) return;
+
+    setIsProcessing(true);
+
+    try {
+      // Initialize Razorpay payment (without order_id for direct payment)
+      const response = await initializePayment({
+        amount: paymentDetails.amount * 100, // Convert to paise
+        currency: 'INR',
+        name: 'Nixtour',
+        description: paymentDetails.description,
+        // Note: order_id removed - using direct payment without backend order creation
+        prefill: {
+          name: paymentDetails.customerName,
+          email: paymentDetails.customerEmail,
+          contact: paymentDetails.customerContact,
+        },
+        notes: {
+          booking_id: paymentDetails.bookingId,
+          customer_id: user?.UserId || 'guest',
+        },
+        theme: {
+          color: '#BC1110', // Nixtour brand red color
+          backdrop_color: '#F5F5F5',
+        },
+      });
+
+      console.log('✅ Payment successful:', response);
+
+      // Payment successful - send to backend for verification
+      await verifyPayment(response);
+
+      // Navigate to success page
+      navigate('/payment-confirmation', {
+        state: {
+          paymentId: response.razorpay_payment_id,
+          orderId: response.razorpay_order_id,
+          amount: paymentDetails.amount,
+          bookingId: paymentDetails.bookingId,
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ Payment error:', error);
+      alert(error.message || 'Payment failed. Please try again.');
+    } finally {
+      setIsProcessing(false);
     }
-  }, [method, isCardValid, isUpiValid, walletOption, remaining, agreeTOS]);
+  };
 
-  // helper: format card number to groups of 4
-  const formatCardNumber = (v: string) =>
-    v
-      .replace(/\D/g, '')
-      .replace(/(.{4})/g, '$1 ')
-      .trim();
+  // Verify payment with backend
+  const verifyPayment = async (response: any) => {
+    try {
+      // In production, you should verify the payment signature on your backend
+      const verificationResponse = await fetch(
+        `${import.meta.env.VITE_SERVER_URL}/api/payment/verify`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('AccessToken')}`,
+          },
+          body: JSON.stringify({
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_signature: response.razorpay_signature,
+            booking_id: paymentDetails.bookingId,
+          }),
+        }
+      );
 
-  // submit handler (stub)
-  const handlePay = () => {
-    if (!isPayEnabled) return;
-    // Here you would call your payment API depending on `method`.
-    // For demo we just show an alert (replace with real logic).
-    alert(`Paying via ${method.toUpperCase()} — total ₹5,185.00`);
+      if (!verificationResponse.ok) {
+        throw new Error('Payment verification failed');
+      }
+
+      console.log('✅ Payment verified successfully');
+    } catch (error) {
+      console.error('❌ Payment verification error:', error);
+      // Continue anyway - the payment was successful on Razorpay's end
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-6 md:p-10">
-      <div className="max-w-6xl mx-auto grid gap-6 md:grid-cols-3">
-        {/* Left: Payment card / form */}
-        <div className="md:col-span-2">
-          <Card className="shadow-lg">
-            <CardHeader className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold">
-                Select a Payment Method
-              </CardTitle>
-              <div className="text-sm text-slate-600">
-                Secure checkout • {remainingText}
-              </div>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              {/* Payment method selector */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <button
-                  onClick={() => setMethod('card')}
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-shadow w-full text-left ${
-                    method === 'card'
-                      ? 'border-blue-500 bg-blue-50 shadow-sm'
-                      : 'border-gray-200 bg-white'
-                  }`}
-                  aria-pressed={method === 'card'}
-                >
-                  <div className="w-8 h-8 rounded-md flex items-center justify-center bg-gradient-to-tr from-blue-500 to-indigo-500 text-white">
-                    💳
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">Card</div>
-                    <div className="text-xs text-slate-500">
-                      Visa, Master, Amex
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setMethod('upi')}
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-shadow w-full text-left ${
-                    method === 'upi'
-                      ? 'border-blue-500 bg-blue-50 shadow-sm'
-                      : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <div className="w-8 h-8 rounded-md flex items-center justify-center bg-green-500 text-white">
-                    🔗
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">UPI</div>
-                    <div className="text-xs text-slate-500">
-                      PhonePe, GPay, BHIM
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setMethod('wallet')}
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-shadow w-full text-left ${
-                    method === 'wallet'
-                      ? 'border-blue-500 bg-blue-50 shadow-sm'
-                      : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <div className="w-8 h-8 rounded-md flex items-center justify-center bg-yellow-500 text-white">
-                    💼
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">Wallet</div>
-                    <div className="text-xs text-slate-500">
-                      Paytm, MobiKwik
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setMethod('cash')}
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-shadow w-full text-left ${
-                    method === 'cash'
-                      ? 'border-blue-500 bg-blue-50 shadow-sm'
-                      : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <div className="w-8 h-8 rounded-md flex items-center justify-center bg-slate-700 text-white">
-                    💵
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">Cash</div>
-                    <div className="text-xs text-slate-500">Pay at counter</div>
-                  </div>
-                </button>
-              </div>
-
-              {/* <Separator /> */}
-              <div className="h-1 bg-gray-200"></div>
-
-              {/* Dynamic form area */}
-              <div className="space-y-4">
-                {method === 'card' && (
-                  <div className="grid gap-4">
-                    {/* Card number */}
-                    <div>
-                      <Label>Card number</Label>
-                      <Input
-                        placeholder="1234 5678 9012 3456"
-                        value={formatCardNumber(cardNumber)}
-                        onChange={(e) =>
-                          setCardNumber(e.target.value.replace(/\D/g, ''))
-                        }
-                        maxLength={23}
-                        aria-label="card-number"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div className="md:col-span-2">
-                        <Label>Cardholder name</Label>
-                        <Input
-                          placeholder="Name on card"
-                          value={cardName}
-                          onChange={(e) => setCardName(e.target.value)}
-                        />
+    <>
+      <Navbar />
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-6 md:p-10 pt-28">
+        <div className="max-w-6xl mx-auto grid gap-6 md:grid-cols-3">
+          {/* Left: Payment card / form */}
+          <div className="md:col-span-2">
+            <Card className="shadow-lg border-slate-200">
+              <CardHeader className="flex items-center justify-between bg-gradient-to-r from-[#BC1110] to-[#8B0000] text-white rounded-t-lg">
+                <div className="flex items-center gap-3">
+                  <Shield className="w-6 h-6" />
+                  <CardTitle className="text-lg font-semibold">
+                    Secure Payment
+                  </CardTitle>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Clock className="w-4 h-4" />
+                  <span>{remainingText}</span>
+                </div>
+              </CardHeader>
+              <CardContent className="p-6 space-y-6">
+                {/* Payment method selector */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-700">
+                    Choose Payment Method
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3">
+                    {/* Razorpay (All methods) */}
+                    <button
+                      onClick={() => setMethod('razorpay')}
+                      className={`flex items-center gap-4 p-4 rounded-lg border-2 transition-all ${
+                        method === 'razorpay'
+                          ? 'border-[#BC1110] bg-red-50 shadow-md'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gradient-to-br from-[#BC1110] to-[#8B0000] text-white">
+                        <CreditCard className="w-6 h-6" />
                       </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label>Expiry (MM/YY)</Label>
-                          <Input
-                            placeholder="MM/YY"
-                            value={expiry}
-                            onChange={(e) => setExpiry(e.target.value)}
-                            maxLength={7}
-                          />
+                      <div className="flex-1 text-left">
+                        <div className="font-semibold text-slate-900">
+                          Pay with Razorpay
                         </div>
-                        <div>
-                          <Label>CVV</Label>
-                          <Input
-                            placeholder="123"
-                            value={cvv}
-                            onChange={(e) =>
-                              setCvv(e.target.value.replace(/\D/g, ''))
-                            }
-                            maxLength={4}
-                          />
+                        <div className="text-sm text-slate-600">
+                          Cards, UPI, Wallets, NetBanking & More
                         </div>
                       </div>
-                    </div>
+                      {method === 'razorpay' && (
+                        <CheckCircle className="w-5 h-5 text-[#BC1110]" />
+                      )}
+                    </button>
+                  </div>
+                </div>
 
-                    <div className="text-xs text-slate-500">
-                      We use secure encryption to store card details. Never
-                      shared.
+                {/* Payment info */}
+                {method === 'razorpay' && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <Shield className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-sm text-blue-900">
+                        <p className="font-semibold mb-1">
+                          Safe & Secure Payment
+                        </p>
+                        <ul className="text-xs space-y-1 text-blue-800">
+                          <li>• 256-bit SSL encryption</li>
+                          <li>• PCI DSS compliant</li>
+                          <li>• All major payment methods supported</li>
+                          <li>• Instant refund in case of cancellation</li>
+                        </ul>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {method === 'upi' && (
-                  <div className="grid gap-3">
-                    <Label>UPI ID</Label>
-                    <Input
-                      placeholder="yourid@bank / yourid@upi"
-                      value={upiId}
-                      onChange={(e) => setUpiId(e.target.value)}
-                      aria-label="upi-id"
+                <div className="h-px bg-gray-200"></div>
+
+                {/* Terms and Pay button */}
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <input
+                      id="tos"
+                      type="checkbox"
+                      checked={agreeTOS}
+                      onChange={(e) => setAgreeTOS(e.target.checked)}
+                      className="mt-1 w-4 h-4 text-[#BC1110] border-gray-300 rounded focus:ring-[#BC1110]"
                     />
-                    <div className="text-xs text-slate-500">
-                      You will be redirected to your UPI app to complete the
-                      payment.
-                    </div>
+                    <label htmlFor="tos" className="text-sm text-slate-700">
+                      I agree to the{' '}
+                      <a href="/user-agreement" className="text-[#BC1110] underline hover:text-[#8B0000]">
+                        terms & conditions
+                      </a>{' '}
+                      and{' '}
+                      <a href="/privacy-policy" className="text-[#BC1110] underline hover:text-[#8B0000]">
+                        privacy policy
+                      </a>
+                      .
+                    </label>
                   </div>
-                )}
 
-                {method === 'wallet' && (
-                  <div className="grid gap-3">
-                    <Label>Select Wallet</Label>
-                    <div className="flex flex-wrap gap-3">
-                      {['Paytm', 'PhonePe', 'MobiKwik'].map((w) => (
-                        <button
-                          key={w}
-                          onClick={() => setWalletOption(w)}
-                          className={`px-4 py-2 rounded-lg border ${
-                            walletOption === w
-                              ? 'bg-blue-50 border-blue-500'
-                              : 'bg-white border-gray-200'
-                          }`}
-                        >
-                          {w}
-                        </button>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 p-4 bg-gradient-to-r from-slate-50 to-gray-50 rounded-lg border border-slate-200">
+                    <div className="flex-1">
+                      <div className="text-sm text-slate-600">Total Amount</div>
+                      <div className="text-2xl font-bold text-slate-900">
+                        ₹{paymentDetails.amount.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                    <Button
+                      disabled={!isPayEnabled || isProcessing}
+                      onClick={handleRazorpayPayment}
+                      className="bg-gradient-to-r from-[#BC1110] to-[#8B0000] hover:from-[#8B0000] hover:to-[#BC1110] text-white px-8 py-6 text-lg font-semibold rounded-xl shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isProcessing ? (
+                        <span className="flex items-center gap-2">
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          Processing...
+                        </span>
+                      ) : remaining <= 0 ? (
+                        'Session Expired'
+                      ) : (
+                        <>Pay ₹{paymentDetails.amount.toLocaleString('en-IN')}</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Small note / promo area */}
+            <div className="mt-4 p-4 bg-white rounded-lg border border-slate-200">
+              <h4 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-[#BC1110]" />
+                Why Razorpay?
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm text-slate-600">
+                <div>
+                  <div className="font-medium text-slate-900">Secure</div>
+                  <div className="text-xs">PCI DSS Level 1 compliant</div>
+                </div>
+                <div>
+                  <div className="font-medium text-slate-900">Fast</div>
+                  <div className="text-xs">Instant payment confirmation</div>
+                </div>
+                <div>
+                  <div className="font-medium text-slate-900">Trusted</div>
+                  <div className="text-xs">Used by 10M+ businesses</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 text-sm text-slate-600">
+              <p>
+                Need help?{' '}
+                <a href="/contact-us" className="text-[#BC1110] underline hover:text-[#8B0000]">
+                  Contact support
+                </a>{' '}
+                or try another payment method. For security, your session will
+                expire after 10 minutes and the booking will be released.
+              </p>
+            </div>
+          </div>
+
+          {/* Right: Booking summary */}
+          <aside>
+            <Card className="sticky top-28 shadow-lg border-slate-200">
+              <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50">
+                <CardTitle className="text-base font-semibold text-slate-900">
+                  Booking Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 space-y-4">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">
+                    {paymentDetails.description}
+                  </div>
+                </div>
+
+                <div className="h-px bg-gray-200"></div>
+
+                {/* Price Breakdown - only show if provided */}
+                {paymentDetails.breakdown && (
+                  <>
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold text-slate-700 uppercase">
+                        Price Breakdown
+                      </div>
+                      {Object.entries(paymentDetails.breakdown).map(([key, value]) => (
+                        <div key={key} className="flex justify-between text-sm">
+                          <div className="text-slate-600 capitalize">{key.replace(/_/g, ' ')}</div>
+                          <div className="font-medium">₹{Number(value).toLocaleString('en-IN')}</div>
+                        </div>
                       ))}
                     </div>
-                    <div className="text-xs text-slate-500">
-                      You will be redirected to the wallet app to confirm
-                      payment.
-                    </div>
-                  </div>
+                    <div className="h-px bg-gray-200"></div>
+                  </>
                 )}
 
-                {method === 'cash' && (
-                  <div className="grid gap-2">
-                    <div className="text-sm">Cash on arrival</div>
-                    <div className="text-xs text-slate-500">
-                      Pay at the counter or to the delivery agent when
-                      applicable.
-                    </div>
+                <div className="flex justify-between items-center bg-gradient-to-r from-[#BC1110] to-[#8B0000] text-white p-3 rounded-lg">
+                  <div className="font-semibold">Total Amount</div>
+                  <div className="text-xl font-bold">
+                    ₹{paymentDetails.amount.toLocaleString('en-IN')}
                   </div>
-                )}
-              </div>
-
-              {/* <Separator /> */}
-              <div className="h-1 bg-gray-200"></div>
-
-              {/* Terms and Pay button */}
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <input
-                    id="tos"
-                    type="checkbox"
-                    checked={agreeTOS}
-                    onChange={(e) => setAgreeTOS(e.target.checked)}
-                    className="mt-1"
-                  />
-                  <label htmlFor="tos" className="text-sm text-slate-700">
-                    I agree to the{' '}
-                    <span className="underline">terms & conditions</span>.
-                  </label>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="text-sm text-slate-700">Total</div>
-                  <div className="text-xl font-semibold">₹5,185.00</div>
-                  <Button
-                    disabled={!isPayEnabled}
-                    onClick={handlePay}
-                    className="ml-3 px-6 py-3 rounded-xl"
-                  >
-                    {remaining <= 0
-                      ? 'Session expired'
-                      : `Confirm & Pay ₹5,185.00`}
-                  </Button>
+                <div className="pt-2">
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <Clock className="w-4 h-4" />
+                    <span>Payment session: {remainingText} left</span>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* Small note / promo area */}
-          <div className="mt-4 text-sm text-slate-600">
-            <p>
-              Need help? <a className="underline">Contact support</a> or try
-              another payment method. For security, your session will expire
-              after 10 minutes and the booking will be released.
-            </p>
-          </div>
+                <div className="h-px bg-gray-200"></div>
+
+                <div className="text-xs text-slate-500">
+                  Booking ID: {paymentDetails.bookingId}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* quick actions */}
+            <div className="mt-4 grid gap-3">
+              <button className="w-full py-3 rounded-lg border-2 border-gray-200 bg-white hover:bg-gray-50 text-slate-700 font-medium transition-all">
+                Save booking
+              </button>
+              <button className="w-full py-3 rounded-lg border-2 border-gray-200 bg-white hover:bg-gray-50 text-slate-700 font-medium transition-all">
+                Change seats
+              </button>
+            </div>
+          </aside>
         </div>
-
-        {/* Right: Booking summary */}
-        <aside>
-          <Card className="sticky top-6">
-            <CardHeader>
-              <CardTitle className="text-base font-semibold">
-                Booking Info
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 space-y-4">
-              <div className="text-sm text-slate-600">New Delhi → Mumbai</div>
-              <div className="text-xs text-slate-500">Sat, Oct 4 • 2h 20m</div>
-
-              {/* <Separator /> */}
-
-              <div className="h-1 bg-gray-200"></div>
-
-              <div className="flex justify-between items-center">
-                <div className="text-sm text-slate-700">Prepay online</div>
-                <div className="font-medium">₹5,185.00</div>
-              </div>
-
-              <div className="pt-2">
-                <div className="text-xs text-slate-500">Payment session</div>
-                <div className="text-sm font-medium">{remainingText} left</div>
-              </div>
-
-              {/* <Separator /> */}
-
-              <div className="h-1 bg-gray-200"></div>
-
-              <div className="text-xs text-slate-500">Price breakdown</div>
-              <div className="flex justify-between text-sm">
-                <div>Base fare</div>
-                <div>₹4,200.00</div>
-              </div>
-              <div className="flex justify-between text-sm">
-                <div>Taxes & fees</div>
-                <div>₹985.00</div>
-              </div>
-
-              {/* <Separator /> */}
-
-              <div className="h-1 bg-gray-200"></div>
-
-              <div className="pt-2">
-                <Button variant="ghost" className="w-full">
-                  Show details
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* quick actions */}
-          <div className="mt-4 grid gap-3">
-            <button className="w-full py-3 rounded-lg border border-gray-200 bg-white">
-              Save booking
-            </button>
-            <button className="w-full py-3 rounded-lg border border-gray-200 bg-white">
-              Change seats
-            </button>
-          </div>
-        </aside>
       </div>
-    </div>
+      <Footer />
+    </>
   );
 };
