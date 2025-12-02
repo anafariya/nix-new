@@ -4,12 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { Target, Telescope } from 'lucide-react'
 import Timeline from '../../components/timeline/timeline'
 import video from '../../assets/video/video.mp4'
-import Nikesh from '../../assets/images/Nikesh.webp'
-import Anil from '../../assets/images/Anil .webp'
+import Nikesh from '../../assets/images/Nikesh1.jpg'
 import Shankha from '../../assets/images/Shankha.webp'
-import Zinia from '../../assets/images/Zinia.webp'
-import Renu from '../../assets/images/Renu.webp'
-import Shashi from '../../assets/images/Shashi.webp'
 import { Navbar } from '../../components/navbar/navbar'
 import Footer from '../../components/footer/footer'
 
@@ -22,30 +18,10 @@ function index() {
             image: Nikesh
         },
         {
-            name: "Anil Kumar Gupta",
-            role: "Director- Study Abroad",
-            image: Anil
-        },
-        {
             name: "Shankha Goswami",
             role: "Marketing",
             image: Shankha
         },
-        {
-            name: "Zinia Das",
-            role: "Human Resources",
-            image: Zinia
-        },
-        {
-            name: "Renu Bisht",
-            role: "Air Product",
-            image: Renu
-        },
-        {
-            name: "Shashikant Yadav",
-            role: "Digital Marketing",
-            image: Shashi
-        }
     ]
 
     return (
@@ -113,6 +89,7 @@ function index() {
                                     <motion.img
                                         src={Nikesh}
                                         className="w-full h-full object-cover"
+                                        style={{ objectPosition: '35% center' }}
                                         whileHover={{ scale: 1.05 }}
                                         transition={{ duration: 0.3 }}
                                     />
@@ -187,7 +164,7 @@ function index() {
                 >
                     Key People
                 </motion.h1>
-                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 sm:gap-8 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 max-w-3xl mx-auto">
                     {keyPeople.map((person, index) => (
                         <motion.div
                             key={person.name}
@@ -201,6 +178,7 @@ function index() {
                                         src={person.image}
                                         alt={person.name}
                                         className="w-full h-full object-cover"
+                                        style={person.name === "Dr Nikesh Ranjan" ? { objectPosition: '35% center' } : undefined}
                                         whileHover={{ scale: 1.05 }}
                                         transition={{ duration: 0.3 }}
                                     />
